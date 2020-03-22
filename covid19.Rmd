@@ -1,0 +1,198 @@
+---
+title: "Examining COVID-19 data"
+output: 
+  flexdashboard::flex_dashboard:
+    vertical_layout: scroll
+    orientation: rows
+    source_code: embed
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+# knitr opts
+knitr::opts_chunk$set(cache = FALSE,
+                      message = FALSE,
+                      warning = FALSE,
+                      echo = FALSE,
+                      eval = TRUE
+)
+```
+
+```{r libraryload}
+library(flexdashboard)
+library(tidyverse)
+library(lubridate)
+library(tsibble)
+library(jsonlite)
+library(gridExtra)
+# remotes::install_github("ropenscilabs/ochRe")
+library(ochRe)
+library(shiny)
+```
+
+```{r read-data}
+# Nick Evershed's Guardian live data
+dj <- fromJSON("https://interactive.guim.co.uk/docsdata/1q5gdePANXci8enuiS4oHUJxcxC13d6bjMRSicakychE.json")
+d <- dj[[1]]$updates 
+d <- d %>% 
+  rename(state=State, date=Date, cum_count = `Cumulative case count`, cum_deaths = `Cumulative deaths`,
+         tests_neg = `Tests conducted (negative)`, tests_tot = `Tests conducted (total)`, 
+         source = `Update Source`, under60 = `Under 60`, over60 = `Over 60`, 
+         community = Community, travel = `Travel-related`, unknown = `Under investigation`, 
+         notes = Notes) %>%
+  mutate(date = dmy(date), cum_count = as.numeric(cum_count),
+         #state = factor(state, levels = c("NSW", "VIC", "QLD", "SA", "WA", "ACT", "TAS", "NT")),
+         cum_deaths = as.numeric(cum_deaths), tests_neg = as.numeric(tests_neg), 
+         tests_tot = as.numeric(tests_tot)) %>%
+  mutate(cum_count = replace_na(cum_count, 0), cum_deaths = replace_na(cum_deaths, 0)) %>%
+  select(-Time) %>%
+  distinct(date, state, .keep_all = TRUE)
+
+# JHU
+covid_jh <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Confirmed.csv")
+covid_jh_oz_st <- covid_jh %>%
+  filter(`Country/Region` == "Australia") %>%
+  pivot_longer(cols=contains("/20"), names_to = "date") %>%
+  mutate(date = mdy(date)) %>%
+  rename(state = `Province/State`) %>%
+  mutate(state = recode(state, "New South Wales"="NSW", "Victoria"="VIC", "Queensland"="QLD", 
+                        "Australian Capital Territory"="ACT", "South Australia"="SA", 
+                        "Western Australia"="WA", "Tasmania"="TAS", "Northern Territory"="NT",
+                        "From Diamond Princess"="DP")) %>%
+  rename(count = value) %>%
+  select(state, date, count)
+# From https://en.wikipedia.org/wiki/List_of_Australian_states_and_territories_by_gross_state_product
+state_pop <- tibble(state = c("NSW","VIC","QLD","SA","WA","TAS","NT","ACT","DP"), 
+    pop = c(8089526, 6594804, 5095100, 1751693, 2621680, 426709, 245869, 420379, NA))
+# Join with Nick Evershed's data
+covid_ne_jhu <- left_join(covid_jh_oz_st, d) 
+# Add population
+covid_ne_jhu <- covid_ne_jhu %>% left_join(state_pop, by="state") %>%
+  mutate(state = factor(state, levels = c("NSW", "VIC", "QLD", "SA", "WA", "ACT", "TAS", "NT", "DP")))
+
+# Data fix
+# replace the cum_count with jhu number if missing
+covid_ne_jhu <- covid_ne_jhu %>%
+  mutate(cum_count = ifelse(is.na(cum_count), count, cum_count))
+# We'll use the jhu count anyway
+# Fill test data with next non-missing
+covid_ne_jhu <- covid_ne_jhu %>%
+  arrange(state, date)
+#covid_ne_jhu_save <- covid_ne_jhu
+#covid_ne_jhu <- covid_ne_jhu_save
+pre_n <- 0
+for (j in 1:nlevels(covid_ne_jhu$state)) {
+  x <- filter(covid_ne_jhu, state == levels(covid_ne_jhu$state)[j])
+  n <- nrow(x)
+  for (i in 1:n) {
+    # Find  nearest date neighbor to fill in missing 
+    if (is.na(covid_ne_jhu$tests_tot[i+pre_n])) {
+      dst <- abs(as.numeric(covid_ne_jhu$date[i+pre_n]-x$date))
+      dst[is.na(x$tests_tot)] <- 1000
+      covid_ne_jhu$tests_tot[i+pre_n] <- covid_ne_jhu$tests_tot[which.min(dst)+pre_n]
+    }
+  }
+  pre_n <- pre_n + n
+}
+# Compute rate
+covid_ne_jhu <- covid_ne_jhu %>%
+  mutate(rate = count/pop * 100000,
+         test_rate = tests_tot/pop * 100000)
+# Remove Diamond Princess data
+covid_ne_jhu <- covid_ne_jhu %>% filter(state != "DP")
+```
+
+
+Australia
+=======================================================================
+
+Column {.sidebar data-width=400}
+-----------------------------------------------------------------------
+
+Latest incidence and testing rates, per 100,000 people 
+
+```{r test_rate, fig.width=8,  fig.height=4, out.width="100%"}
+ord <- covid_ne_jhu %>% 
+  filter(date == max(date)) %>%
+  arrange(rate) %>%
+  select(state)
+p1 <- covid_ne_jhu %>% 
+  filter(date == max(date)) %>% 
+  mutate(state = factor(state, levels=ord$state)) %>%
+  ggplot(aes(x=state, y=rate, fill=state)) +
+  geom_col() +
+  scale_fill_ochre(palette = "mccrea") +
+  ggtitle("Incidence") + 
+  coord_flip() + xlab("") + ylab("Rate")
+p2 <- covid_ne_jhu %>% 
+  filter(date == max(date)) %>% 
+  mutate(state = factor(state, levels=ord$state)) %>%
+  ggplot(aes(x=state, y=test_rate, fill=state)) +
+  geom_col() +
+  scale_fill_ochre(palette = "mccrea") +
+  ggtitle("Testing") + 
+  coord_flip() + xlab("") + ylab("Rate")
+grid.arrange(p1, p2, ncol=2)
+```
+
+States ordered by incidence rate.
+
+Column {data-width=600}
+-----------------------------------------------------------------------
+
+###  COVID-19 rate per 100,000 people by state in Australia
+
+```{r state_incidence, fig.width=10,  fig.height=5.5}
+renderPlot({
+  covid_ne_jhu %>% 
+  mutate(state = factor(state, levels=ord$state[9:1])) %>%
+    ggplot(aes(x=date, y=rate)) +
+      geom_point(aes(colour=state)) +
+      geom_smooth(se=FALSE, colour="black") + 
+      scale_colour_ochre(palette = "mccrea") +
+      facet_wrap(~state) + 
+      xlab("") + ylab("Rate (per 100k)")
+})
+```
+
+
+International
+=======================================================================
+
+Inputs {.sidebar data-width=200}
+-----------------------------------------------------------------------
+
+```{r choose_countries}
+checkboxGroupInput("cnt", "Choose:", choices = unique(covid_jh$`Country/Region`), selected = c("Australia", "Germany", "Denmark", "Sweden"))
+```
+
+Column {data-height=600}
+-----------------------------------------------------------------------
+
+```{r incidence_rates, out.height="100%", fig.width=10, fig.height=10}
+covid_jh_long <- covid_jh %>%
+  pivot_longer(cols=contains("/20"), names_to = "date") %>%
+  mutate(date = mdy(date)) %>%
+  group_by(date, `Country/Region`) %>%
+  summarise(count = sum(value)) %>%
+  mutate(dif = difference(count))
+renderPlot({
+  covid_jh_long %>% 
+    filter(`Country/Region` %in% input$cnt) %>%
+    ggplot(aes(x=date, y=count)) + geom_col() +
+    facet_wrap(~`Country/Region`, scales="free_y") + 
+    scale_y_log10() + xlab("") + ylab("Count (log scale)")
+})
+```
+
+Explain
+=======================================================================
+
+Data is taken from several sources. 
+
+The incidence data is from John Hopkins University, using  the file https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Confirmed.csv. 
+
+This is compared with the  data collated by Nick Evershed on Australian records at https://interactive.guim.co.uk/docsdata/1q5gdePANXci8enuiS4oHUJxcxC13d6bjMRSicakychE.json
+
+Population for Australian states is from https://en.wikipedia.org/wiki/List_of_Australian_states_and_territories_by_gross_state_product
+
