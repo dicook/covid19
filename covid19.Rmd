@@ -178,20 +178,23 @@ Inputs {.sidebar data-width=200}
 -----------------------------------------------------------------------
 
 ```{r choose_countries}
-checkboxGroupInput("cnt", "Choose:", choices = unique(covid_jh$`Country/Region`), selected = c("Australia", "Germany", "Denmark", "Sweden"))
-```
-
-Column {data-height=600}
------------------------------------------------------------------------
-
-```{r incidence_rates, out.height="100%", fig.width=10, fig.height=10}
 covid_jh_long <- covid_jh %>%
   pivot_longer(cols=contains("/20"), names_to = "date") %>%
   mutate(date = mdy(date)) %>%
   group_by(date, `Country/Region`) %>%
   summarise(count = sum(value)) %>%
-  mutate(dif = difference(count)) %>%
-  ungroup()
+  ungroup() %>%
+  group_by(`Country/Region`) %>%
+  mutate(daily = count-lag(count, order_by = date)) %>%
+  ungroup() %>%
+  arrange(`Country/Region`)
+checkboxGroupInput("cnt", "", choices = unique(covid_jh_long$`Country/Region`), selected = c("Australia", "Germany", "Denmark", "Sweden"))
+```
+
+Row {data-height=400}
+-----------------------------------------------------------------------
+
+```{r incidence_rates, out.height="100%", fig.width=10, fig.height=10}
 renderPlot({
   covid_jh_long %>% 
     filter(`Country/Region` %in% input$cnt) %>%
@@ -199,6 +202,21 @@ renderPlot({
     facet_wrap(~`Country/Region`, scales="free_y") + 
     scale_y_log10() + xlab("") + ylab("Count (log scale)")
 })
+```
+
+Row {data-height=400}
+-----------------------------------------------------------------------
+
+### Incidence by country `r max(covid_jh_long$date)`
+
+```{r country_counts}
+covid_jh_long %>% 
+  filter(date == max(date)) %>%
+  select(`Country/Region`, count, daily) %>%
+  arrange(`Country/Region`) %>%
+  datatable(options = list(
+  bPaginate = FALSE
+))
 ```
 
 Survival rates {data-orientation=columns}
