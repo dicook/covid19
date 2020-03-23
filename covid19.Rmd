@@ -152,8 +152,10 @@ covid_ne_jhu <- covid_ne_jhu %>% filter(state != "DP")
 Australia
 =======================================================================
 
-Column {.sidebar data-width=400}
+Rates {.sidebar data-width=400}
 -----------------------------------------------------------------------
+
+### Rates
 
 Latest incidence and testing rates, per 100,000 people 
 
@@ -183,6 +185,8 @@ grid.arrange(p1, p2, ncol=2)
 ```
 
 *Note: States ordered by incidence rate.*
+
+### Data
 
 ```{r table_counts}
 covid_ne_jhu_smry %>% 
@@ -337,3 +341,5 @@ This is compared with the  data collated by Nick Evershed on Australian records 
 Population for Australian states is from https://en.wikipedia.org/wiki/List_of_Australian_states_and_territories_by_gross_state_product
 
 Testing data for Australia is taken from https://ourworldindata.org/covid-testing. And NSW is updated from https://www.health.nsw.gov.au/news/Pages/20200323_00.aspx. Both of these sites need some manual curation, because one needs a manual download, and the second needs the url updated with the current date, and a check that tables are still the same.
+
+All code is available at https://github.com/dicook/covid19. Suggestions and pull requests encouraged. 
