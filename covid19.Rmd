@@ -53,6 +53,44 @@ d <- d %>%
   distinct(date, state, .keep_all = TRUE)
 ```
 
+```{r testing_data}
+testing <- read_csv("data/covid-19-tests-country.csv")
+oz_testing <- testing %>% filter(grepl("Australia", Entity)) %>%
+  filter(Entity != "Australia")  %>%
+  mutate(Entity = gsub("Australia - ", "", Entity)) %>%
+  mutate(Entity = recode(Entity, "New South Wales"="NSW", 
+                         "Victoria"="VIC",
+                         "Queensland"="QLD", 
+                        "Australian Capital Territory"="ACT", 
+                        "South Australia"="SA", 
+                        "Western Australia"="WA", 
+                        "Tasmania"="TAS", 
+                        "Northern Territory"="NT")) %>%
+  rename(tests = `Total COVID-19 tests`, state=Entity) %>%
+  select(state, tests)
+
+# Update NSW data from the nice NSW news page with tables
+url = "https://www.health.nsw.gov.au/news/Pages/20200323_00.aspx"
+raw = xml2::read_html(url)
+raw_nsw_tbl = raw %>%
+  rvest::html_nodes(#xpath = #".//div[@id='ctl00_PlaceHolderMain_contentc1__ControlWrapper_RichHtmlField']/table") %>%
+  "table") %>%                   
+  rvest::html_table()
+nsw_counts <- raw_nsw_tbl[[1]]  %>% 
+  as_tibble() %>% 
+  janitor::clean_names() %>%
+  mutate(count = as.numeric(gsub(",","",count)))
+# Update NSW testing based on this info
+oz_testing <- oz_testing %>% 
+  mutate(tests = ifelse(state == "NSW", nsw_counts$count[3], tests)) 
+nsw_source <- raw_nsw_tbl[[2]] %>% 
+  as_tibble() %>% 
+  janitor::clean_names()
+nsw_demog <- raw_nsw_tbl[[3]]  %>% 
+  as_tibble() %>% 
+  janitor::clean_names()
+```
+
 ```{r read-jhu}
 # JHU
 covid_jh <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Confirmed.csv")
@@ -102,8 +140,10 @@ for (j in 1:nlevels(covid_ne_jhu$state)) {
 }
 # Compute rate
 covid_ne_jhu <- covid_ne_jhu %>%
+  left_join(oz_testing) %>%
+  mutate(state = factor(state, levels = c("NSW", "VIC", "QLD", "SA", "WA", "ACT", "TAS", "NT", "DP"))) %>%
   mutate(rate = count/pop * 100000,
-         test_rate = tests_tot/pop * 100000)
+         test_rate = tests/pop * 100000)
 # Remove Diamond Princess data
 covid_ne_jhu <- covid_ne_jhu %>% filter(state != "DP")
 ```
@@ -130,13 +170,15 @@ p1 <- covid_ne_jhu_smry %>%
   geom_col() +
   scale_fill_ochre(palette = "mccrea") +
   ggtitle("Incidence") + 
-  coord_flip() + xlab("") + ylab("Rate")
+  coord_flip() + xlab("") + ylab("Rate") +
+  theme(legend.position = "none")
 p2 <- covid_ne_jhu_smry %>%
   ggplot(aes(x=state, y=test_rate, fill=state)) +
   geom_col() +
   scale_fill_ochre(palette = "mccrea") +
   ggtitle("Testing") + 
-  coord_flip() + xlab("") + ylab("Rate")
+  coord_flip() + xlab("") + ylab("Rate") +
+  theme(legend.position = "none")
 grid.arrange(p1, p2, ncol=2)
 ```
 
@@ -224,7 +266,7 @@ Survival rates {data-orientation=columns}
 
 Column {.sidebar data-width=150}
 -----------------------------------------------------------------------
-The survival rates are calculated by taking 1-deaths/incidence. 
+The survival rates are calculated by taking 1-deaths/incidence. Only countries with more than 500 cases are shown.
 
 <p> *Its more usual to talk about mortality rates, but from a personal perspective, I'd rather hear about survival rates.*
 
@@ -282,6 +324,7 @@ renderPlotly({
 })
 ```
 
+
 Explain
 =======================================================================
 
@@ -293,3 +336,4 @@ This is compared with the  data collated by Nick Evershed on Australian records 
 
 Population for Australian states is from https://en.wikipedia.org/wiki/List_of_Australian_states_and_territories_by_gross_state_product
 
+Testing data for Australia is taken from https://ourworldindata.org/covid-testing. And NSW is updated from https://www.health.nsw.gov.au/news/Pages/20200323_00.aspx. Both of these sites need some manual curation, because one needs a manual download, and the second needs the url updated with the current date, and a check that tables are still the same.
