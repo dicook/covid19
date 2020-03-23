@@ -145,6 +145,7 @@ grid.arrange(p1, p2, ncol=2)
 ```{r table_counts}
 covid_ne_jhu_smry %>% 
   select(state, date, count, tests_tot, source) %>%
+  arrange(desc(count)) %>%
   datatable(options = list(
   bPaginate = FALSE
 ))
