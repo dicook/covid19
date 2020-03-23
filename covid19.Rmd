@@ -5,6 +5,7 @@ output:
     vertical_layout: scroll
     orientation: rows
     source_code: embed
+    theme: sandstone
 runtime: shiny
 ---
 
@@ -27,6 +28,9 @@ library(jsonlite)
 library(gridExtra)
 # remotes::install_github("ropenscilabs/ochRe")
 library(ochRe)
+library(forcats)
+library(plotly)
+library(DT)
 library(shiny)
 ```
 
@@ -47,7 +51,9 @@ d <- d %>%
   mutate(cum_count = replace_na(cum_count, 0), cum_deaths = replace_na(cum_deaths, 0)) %>%
   select(-Time) %>%
   distinct(date, state, .keep_all = TRUE)
+```
 
+```{r read-jhu}
 # JHU
 covid_jh <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Confirmed.csv")
 covid_jh_oz_st <- covid_jh %>%
@@ -116,17 +122,16 @@ ord <- covid_ne_jhu %>%
   filter(date == max(date)) %>%
   arrange(rate) %>%
   select(state)
-p1 <- covid_ne_jhu %>% 
+covid_ne_jhu_smry <- covid_ne_jhu %>% 
   filter(date == max(date)) %>% 
-  mutate(state = factor(state, levels=ord$state)) %>%
+  mutate(state = factor(state, levels=ord$state))
+p1 <- covid_ne_jhu_smry %>%
   ggplot(aes(x=state, y=rate, fill=state)) +
   geom_col() +
   scale_fill_ochre(palette = "mccrea") +
   ggtitle("Incidence") + 
   coord_flip() + xlab("") + ylab("Rate")
-p2 <- covid_ne_jhu %>% 
-  filter(date == max(date)) %>% 
-  mutate(state = factor(state, levels=ord$state)) %>%
+p2 <- covid_ne_jhu_smry %>%
   ggplot(aes(x=state, y=test_rate, fill=state)) +
   geom_col() +
   scale_fill_ochre(palette = "mccrea") +
@@ -135,7 +140,15 @@ p2 <- covid_ne_jhu %>%
 grid.arrange(p1, p2, ncol=2)
 ```
 
-States ordered by incidence rate.
+*Note: States ordered by incidence rate.*
+
+```{r table_counts}
+covid_ne_jhu_smry %>% 
+  select(state, date, count, tests_tot, source) %>%
+  datatable(options = list(
+  bPaginate = FALSE
+))
+```
 
 Column {data-width=600}
 -----------------------------------------------------------------------
@@ -156,8 +169,9 @@ renderPlot({
 ```
 
 
-International
+World Incidence
 =======================================================================
+
 
 Inputs {.sidebar data-width=200}
 -----------------------------------------------------------------------
@@ -175,13 +189,77 @@ covid_jh_long <- covid_jh %>%
   mutate(date = mdy(date)) %>%
   group_by(date, `Country/Region`) %>%
   summarise(count = sum(value)) %>%
-  mutate(dif = difference(count))
+  mutate(dif = difference(count)) %>%
+  ungroup()
 renderPlot({
   covid_jh_long %>% 
     filter(`Country/Region` %in% input$cnt) %>%
     ggplot(aes(x=date, y=count)) + geom_col() +
     facet_wrap(~`Country/Region`, scales="free_y") + 
     scale_y_log10() + xlab("") + ylab("Count (log scale)")
+})
+```
+
+Survival rates {data-orientation=columns}
+=======================================================================
+
+Column {.sidebar data-width=150}
+-----------------------------------------------------------------------
+The survival rates are calculated by taking 1-deaths/incidence. 
+
+<p> *Its more usual to talk about mortality rates, but from a personal perspective, I'd rather hear about survival rates.*
+
+Row {data-height=150}
+-----------------------------------------------------------------------
+
+### Counts
+
+```{r read_more_jhu}
+covid_jh_recovered <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Recovered.csv")
+covid_jh_deaths <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Deaths.csv")
+```
+
+```{r survival}
+covid_jh_deaths_long <- covid_jh_deaths %>%
+  pivot_longer(cols=contains("/20"), names_to = "date") %>%
+  mutate(date = mdy(date)) %>%
+  group_by(date, `Country/Region`) %>%
+  summarise(deaths = sum(value)) %>%
+  ungroup()
+covid_jh_all <- left_join(covid_jh_long, covid_jh_deaths_long)
+latest_surv <- covid_jh_all %>%
+  select(`Country/Region`, date, count, deaths) %>%
+  filter(date == max(date)) %>%
+  mutate(survival = 1 - deaths/count) %>%
+  filter(!is.na(survival)) %>%
+  filter(count > 500)
+latest_surv <- latest_surv %>%
+  mutate(`Country/Region` = fct_reorder(`Country/Region`, survival))
+```
+
+```{r plot-counts, fig.height=7, fig.width=3, out.width="50%"}
+p1 <- ggplot(data=latest_surv, aes(x=`Country/Region`, y=count)) +
+  geom_col(aes(text=survival)) + 
+  scale_y_log10() +
+  coord_flip() + xlab("") + ylab("Count (log scale)")
+renderPlotly({
+  ggplotly(p1)
+})
+```
+
+Row {data-height=150}
+-----------------------------------------------------------------------
+
+### Survival
+
+```{r plot_survival, fig.height=7, fig.width=3, out.width="50%"}
+p2 <- ggplot(data=latest_surv, aes(x=`Country/Region`, y=survival)) +
+  geom_col(aes(text=count)) + 
+  coord_flip() + xlab("") + ylab("Survival rate") +
+  geom_hline(yintercept=1, colour = "red") +
+  ylim(c(0,1))
+renderPlotly({
+  ggplotly(p2)
 })
 ```
 
