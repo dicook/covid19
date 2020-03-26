@@ -31,6 +31,7 @@ library(ochRe)
 library(forcats)
 library(plotly)
 library(DT)
+library(googlesheets)
 library(shiny)
 ```
 
@@ -51,6 +52,8 @@ d <- d %>%
   mutate(cum_count = replace_na(cum_count, 0), cum_deaths = replace_na(cum_deaths, 0)) %>%
   select(-Time) %>%
   distinct(date, state, .keep_all = TRUE)
+#g <- gs_url("https://docs.google.com/spreadsheets/d/1q5gdePANXci8enuiS4oHUJxcxC13d6bjMRSicakychE/htmlview#")
+#dg <- read_read(g, )
 ```
 
 ```{r testing_data}
@@ -70,7 +73,7 @@ oz_testing <- testing %>% filter(grepl("Australia", Entity)) %>%
   select(state, tests)
 
 # Update NSW data from the nice NSW news page with tables
-url = "https://www.health.nsw.gov.au/news/Pages/20200323_00.aspx"
+url = "https://www.health.nsw.gov.au/news/Pages/20200325_00.aspx"
 raw = xml2::read_html(url)
 raw_nsw_tbl = raw %>%
   rvest::html_nodes(#xpath = #".//div[@id='ctl00_PlaceHolderMain_contentc1__ControlWrapper_RichHtmlField']/table") %>%
@@ -93,7 +96,7 @@ nsw_demog <- raw_nsw_tbl[[3]]  %>%
 
 ```{r read-jhu}
 # JHU
-covid_jh <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Confirmed.csv")
+covid_jh <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv")
 covid_jh_oz_st <- covid_jh %>%
   filter(`Country/Region` == "Australia") %>%
   pivot_longer(cols=contains("/20"), names_to = "date") %>%
@@ -104,7 +107,7 @@ covid_jh_oz_st <- covid_jh %>%
                         "Western Australia"="WA", "Tasmania"="TAS", "Northern Territory"="NT",
                         "From Diamond Princess"="DP")) %>%
   rename(count = value) %>%
-  select(state, date, count)
+  select(state, date, count) 
 # From https://en.wikipedia.org/wiki/List_of_Australian_states_and_territories_by_gross_state_product
 state_pop <- tibble(state = c("NSW","VIC","QLD","SA","WA","TAS","NT","ACT","DP"), 
     pop = c(8089526, 6594804, 5095100, 1751693, 2621680, 426709, 245869, 420379, NA))
@@ -124,6 +127,10 @@ covid_ne_jhu <- covid_ne_jhu %>%
   arrange(state, date)
 #covid_ne_jhu_save <- covid_ne_jhu
 #covid_ne_jhu <- covid_ne_jhu_save
+# Remove DP
+covid_ne_jhu <- covid_ne_jhu %>%
+  filter(state != "DP") %>%
+  mutate(state = factor(state, levels = c("NSW", "VIC", "QLD", "SA", "WA", "ACT", "TAS", "NT")))
 pre_n <- 0
 for (j in 1:nlevels(covid_ne_jhu$state)) {
   x <- filter(covid_ne_jhu, state == levels(covid_ne_jhu$state)[j])
@@ -138,7 +145,7 @@ for (j in 1:nlevels(covid_ne_jhu$state)) {
   }
   pre_n <- pre_n + n
 }
-# Compute rate
+# Compute rate, and use the NSW reports
 covid_ne_jhu <- covid_ne_jhu %>%
   left_join(oz_testing) %>%
   mutate(state = factor(state, levels = c("NSW", "VIC", "QLD", "SA", "WA", "ACT", "TAS", "NT", "DP"))) %>%
@@ -166,6 +173,7 @@ ord <- covid_ne_jhu %>%
   select(state)
 covid_ne_jhu_smry <- covid_ne_jhu %>% 
   filter(date == max(date)) %>% 
+  mutate(count = ifelse(state == "NSW", nsw_counts$count[1], count)) %>%
   mutate(state = factor(state, levels=ord$state))
 p1 <- covid_ne_jhu_smry %>%
   ggplot(aes(x=state, y=rate, fill=state)) +
@@ -234,7 +242,7 @@ covid_jh_long <- covid_jh %>%
   mutate(daily = count-lag(count, order_by = date)) %>%
   ungroup() %>%
   arrange(`Country/Region`)
-checkboxGroupInput("cnt", "", choices = unique(covid_jh_long$`Country/Region`), selected = c("Australia", "Germany", "Denmark", "Sweden"))
+checkboxGroupInput("cnt", NULL, choices = unique(covid_jh_long$`Country/Region`), selected = c("Australia", "Germany", "Denmark", "Sweden"),  width="100%")
 ```
 
 Row {data-height=400}
@@ -280,8 +288,7 @@ Row {data-height=150}
 ### Counts
 
 ```{r read_more_jhu}
-covid_jh_recovered <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Recovered.csv")
-covid_jh_deaths <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Deaths.csv")
+covid_jh_deaths <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv")
 ```
 
 ```{r survival}
@@ -336,9 +343,9 @@ Data is taken from several sources.
 
 The incidence data is from John Hopkins University, using  the file https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Confirmed.csv. 
 
-This is compared with the  data collated by Nick Evershed on Australian records at https://interactive.guim.co.uk/docsdata/1q5gdePANXci8enuiS4oHUJxcxC13d6bjMRSicakychE.json
+This is compared with the  data collated by Nick Evershed on Australian records at https://interactive.guim.co.uk/docsdata/1q5gdePANXci8enuiS4oHUJxcxC13d6bjMRSicakychE.json. 
 
-Population for Australian states is from https://en.wikipedia.org/wiki/List_of_Australian_states_and_territories_by_gross_state_product
+Population for Australian states is from https://en.wikipedia.org/wiki/List_of_Australian_states_and_territories_by_gross_state_product. 
 
 Testing data for Australia is taken from https://ourworldindata.org/covid-testing. And NSW is updated from https://www.health.nsw.gov.au/news/Pages/20200323_00.aspx. Both of these sites need some manual curation, because one needs a manual download, and the second needs the url updated with the current date, and a check that tables are still the same.
 
