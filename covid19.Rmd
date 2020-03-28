@@ -38,7 +38,7 @@ library(shiny)
 ```
 
 
-```{r read-data}
+```{r read-data, eval=FALSE}
 # Nick Evershed's Guardian live data
 dj <- fromJSON("https://interactive.guim.co.uk/docsdata/1q5gdePANXci8enuiS4oHUJxcxC13d6bjMRSicakychE.json")
 d <- dj[[1]]$updates 
@@ -59,7 +59,7 @@ d <- d %>%
 #dg <- read_read(g, )
 ```
 
-```{r testing_data}
+```{r testing_data, eval=FALSE}
 testing <- read_csv("data/covid-19-tests-country.csv")
 oz_testing <- testing %>% filter(grepl("Australia", Entity)) %>%
   filter(Entity != "Australia")  %>%
@@ -114,6 +114,10 @@ covid_jh_oz_st <- covid_jh %>%
 # From https://en.wikipedia.org/wiki/List_of_Australian_states_and_territories_by_gross_state_product
 state_pop <- tibble(state = c("NSW","VIC","QLD","SA","WA","TAS","NT","ACT","DP"), 
     pop = c(8089526, 6594804, 5095100, 1751693, 2621680, 426709, 245869, 420379, NA))
+```
+
+```{r ne_data, eval=FALSE}
+# Replaced with Monash data
 # Join with Nick Evershed's data
 covid_ne_jhu <- left_join(covid_jh_oz_st, d) 
 # Add population
@@ -158,11 +162,37 @@ covid_ne_jhu <- covid_ne_jhu %>%
 covid_ne_jhu <- covid_ne_jhu %>% filter(state != "DP")
 ```
 
-```{r eval=FALSE}
+```{r monash_data}
 # Data from covid-19-au project
 state_monash <- fromJSON("https://raw.githubusercontent.com/covid-19-au/covid-19-au.github.io/prod/src/data/state.json")
-locations_monash <- fromJSON("https://raw.githubusercontent.com/covid-19-au/covid-19-au.github.io/prod/src/data/mapdata.json")
-test_loc_monash <- frmJSON("https://raw.githubusercontent.com/covid-19-au/covid-19-au.github.io/prod/src/data/mapdataHos.json")
+x <- tibble(date=state_monash)
+x_wide <- x %>% unnest_wider(date) 
+x_wide_bef19 <- x_wide[1:18,] %>% 
+  pivot_longer(cols = NSW:NT, names_to = "state", values_to = "count") %>%
+  unnest_wider(count) %>%
+  rename(count=`...1`) %>%
+  mutate(date = rep(names(state_monash)[1:18], rep(8, 18)),
+         deaths = NA, recovered = NA, tested = NA) %>%
+  select(date, state, count, deaths, recovered, tested)
+x_wide_aft18 <- x_wide[19:length(state_monash),] %>% 
+  pivot_longer(cols = NSW:NT) %>% 
+  unnest_wider(value) %>%
+  rename(state=name, 
+         count=`...1`,
+         deaths=`...2`,
+         recovered=`...3`,
+         tested=`...4`) %>%
+  mutate(date = rep(names(state_monash)[19:length(state_monash)], 
+                    rep(8, length(state_monash)-18))) %>%
+  select(date, state, count, deaths, recovered, tested)
+state_monash_data <- bind_rows(x_wide_bef19, x_wide_aft18) 
+state_monash_data <- left_join(state_monash_data, state_pop)
+state_monash_data <- state_monash_data %>%
+  mutate(rate = count/pop * 100000,
+         test_rate = tested/pop * 100000) %>%
+  mutate(date = ymd(date))
+#locations_monash <- fromJSON("https://raw.githubusercontent.com/covid-19-au/covid-19-au.github.io/prod/src/data/mapdata.json")
+#test_loc_monash <- frmJSON("https://raw.githubusercontent.com/covid-19-au/covid-19-au.github.io/prod/src/data/mapdataHos.json")
 ```
 
 Australia
@@ -176,7 +206,7 @@ Rates {.sidebar data-width=400}
 
 Latest incidence and testing rates, per 100,000 people 
 
-```{r test_rate, fig.width=8,  fig.height=4, out.width="100%"}
+```{r test_rate, fig.width=8,  fig.height=4, out.width="100%", eval=FALSE}
 ord <- covid_ne_jhu %>% 
   filter(date == max(date)) %>%
   arrange(rate) %>%
@@ -202,13 +232,48 @@ p2 <- covid_ne_jhu_smry %>%
 grid.arrange(p1, p2, ncol=2)
 ```
 
+```{r monash_test_rate, fig.width=8,  fig.height=4, out.width="100%"}
+# Now make plots using Monash COVID-19 data
+ord <- state_monash_data %>% 
+  filter(date == max(date)) %>%
+  arrange(rate) %>%
+  select(state)
+covid_ne_jhu_smry <- state_monash_data %>% 
+  filter(date == max(date)) %>% 
+  mutate(state = factor(state, levels=ord$state))
+p1 <- covid_ne_jhu_smry %>%
+  ggplot(aes(x=state, y=rate, fill=state)) +
+  geom_col() +
+  scale_fill_ochre(palette = "mccrea") +
+  ggtitle("Incidence") + 
+  coord_flip() + xlab("") + ylab("Rate") +
+  theme(legend.position = "none")
+p2 <- covid_ne_jhu_smry %>%
+  ggplot(aes(x=state, y=test_rate, fill=state)) +
+  geom_col() +
+  scale_fill_ochre(palette = "mccrea") +
+  ggtitle("Testing") + 
+  coord_flip() + xlab("") + ylab("Rate") +
+  theme(legend.position = "none")
+grid.arrange(p1, p2, ncol=2)
+```
+
 *Note: States ordered by incidence rate.*
 
 ### Data
 
-```{r table_counts}
+```{r table_counts, eval=FALSE}
 covid_ne_jhu_smry %>% 
   select(state, date, count, tests, source) %>%
+  arrange(desc(count)) %>%
+  datatable(options = list(
+  bPaginate = FALSE
+))
+```
+
+```{r monash_table_counts}
+covid_ne_jhu_smry %>% 
+  select(state, date, count, deaths, tested, rate, test_rate) %>%
   arrange(desc(count)) %>%
   datatable(options = list(
   bPaginate = FALSE
@@ -220,9 +285,22 @@ Column {data-width=600}
 
 ###  COVID-19 rate per 100,000 people by state in Australia
 
-```{r state_incidence, fig.width=10,  fig.height=5.5}
+```{r state_incidence, fig.width=10,  fig.height=5.5, eval=FALSE}
 renderPlot({
   covid_ne_jhu %>% 
+  mutate(state = factor(state, levels=ord$state[9:1])) %>%
+    ggplot(aes(x=date, y=rate)) +
+      geom_point(aes(colour=state), size=3) +
+      geom_smooth(se=FALSE, colour="black") + 
+      scale_colour_ochre(palette = "mccrea") +
+      facet_wrap(~state) + 
+      xlab("") + ylab("Rate (per 100k)")
+})
+```
+
+```{r monash_state_incidence, fig.width=10,  fig.height=5.5}
+renderPlot({
+  state_monash_data %>% 
   mutate(state = factor(state, levels=ord$state[9:1])) %>%
     ggplot(aes(x=date, y=rate)) +
       geom_point(aes(colour=state)) +
