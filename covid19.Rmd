@@ -14,6 +14,7 @@ runtime: shiny
 knitr::opts_chunk$set(cache = FALSE,
                       message = FALSE,
                       warning = FALSE,
+                      error = FALSE,
                       echo = FALSE,
                       eval = TRUE
 )
@@ -31,9 +32,11 @@ library(ochRe)
 library(forcats)
 library(plotly)
 library(DT)
-library(googlesheets)
+#library(googlesheets)
+library(ggrepel)
 library(shiny)
 ```
+
 
 ```{r read-data}
 # Nick Evershed's Guardian live data
@@ -73,7 +76,7 @@ oz_testing <- testing %>% filter(grepl("Australia", Entity)) %>%
   select(state, tests)
 
 # Update NSW data from the nice NSW news page with tables
-url = "https://www.health.nsw.gov.au/news/Pages/20200325_00.aspx"
+url = "https://www.health.nsw.gov.au/news/Pages/20200327_00.aspx"
 raw = xml2::read_html(url)
 raw_nsw_tbl = raw %>%
   rvest::html_nodes(#xpath = #".//div[@id='ctl00_PlaceHolderMain_contentc1__ControlWrapper_RichHtmlField']/table") %>%
@@ -155,9 +158,16 @@ covid_ne_jhu <- covid_ne_jhu %>%
 covid_ne_jhu <- covid_ne_jhu %>% filter(state != "DP")
 ```
 
+```{r eval=FALSE}
+# Data from covid-19-au project
+state_monash <- fromJSON("https://raw.githubusercontent.com/covid-19-au/covid-19-au.github.io/prod/src/data/state.json")
+locations_monash <- fromJSON("https://raw.githubusercontent.com/covid-19-au/covid-19-au.github.io/prod/src/data/mapdata.json")
+test_loc_monash <- frmJSON("https://raw.githubusercontent.com/covid-19-au/covid-19-au.github.io/prod/src/data/mapdataHos.json")
+```
 
 Australia
 =======================================================================
+
 
 Rates {.sidebar data-width=400}
 -----------------------------------------------------------------------
@@ -223,7 +233,6 @@ renderPlot({
 })
 ```
 
-
 World Incidence
 =======================================================================
 
@@ -241,20 +250,54 @@ covid_jh_long <- covid_jh %>%
   group_by(`Country/Region`) %>%
   mutate(daily = count-lag(count, order_by = date)) %>%
   ungroup() %>%
-  arrange(`Country/Region`)
-checkboxGroupInput("cnt", NULL, choices = unique(covid_jh_long$`Country/Region`), selected = c("Australia", "Germany", "Denmark", "Sweden"),  width="100%")
+  arrange(`Country/Region`) %>%
+  filter(`Country/Region` != "Diamond Princess")
+covid_since100 <- covid_jh_long %>%
+  filter(count > 100) %>%
+  group_by(`Country/Region`) %>%
+  mutate(days = as.numeric(date - min(date))) %>%
+  ungroup() 
+keep <- covid_since100 %>%
+  count(`Country/Region`) %>%
+  filter(n>14)
+covid_since100 <- covid_since100 %>%
+  filter(`Country/Region` %in% keep$`Country/Region`)
+covid_since100_labels <- covid_since100 %>%
+  group_by(`Country/Region`) %>%
+  filter(days == max(days)) %>%
+  ungroup()
+checkboxGroupInput("cnt", "Choose countries:", choices = unique(covid_jh_long$`Country/Region`), selected = c("Australia", "Germany", "Denmark", "Sweden"),  width="100%")
 ```
+
 
 Row {data-height=400}
 -----------------------------------------------------------------------
 
 ```{r incidence_rates, out.height="100%", fig.width=10, fig.height=10}
 renderPlot({
-  covid_jh_long %>% 
+china <- filter(covid_since100, `Country/Region`=="China")
+china_label <- filter(covid_since100_labels, `Country/Region`=="China")
+countries <- covid_since100 %>%
+  filter(`Country/Region` %in% input$cnt)
+countries_labels <- filter(covid_since100_labels, `Country/Region` %in% input$cnt)
+p3 <- 
+  ggplot() +
+  geom_line(data=china, aes(x=days, y=count), colour="black") +
+  geom_text_repel(data=china_label, aes(x=days, y=count, label=`Country/Region`), colour="black") +
+  geom_line(data=countries, aes(x=days, y=count, colour=`Country/Region`)) + 
+  geom_text_repel(data=countries_labels, aes(x=days, y=count,
+       label=`Country/Region`, colour=`Country/Region`)) + 
+  scale_y_log10() + 
+  xlab("Days since 100 cases") + 
+  ylab("Incidences (log scale)") +
+  scale_colour_brewer("", palette="Dark2") +
+  theme(legend.position = "none") 
+p4 <- covid_jh_long %>% 
     filter(`Country/Region` %in% input$cnt) %>%
     ggplot(aes(x=date, y=count)) + geom_col() +
     facet_wrap(~`Country/Region`, scales="free_y") + 
     scale_y_log10() + xlab("") + ylab("Count (log scale)")
+grid.arrange(p3, p4, ncol=2)
 })
 ```
 
@@ -273,14 +316,14 @@ covid_jh_long %>%
 ))
 ```
 
-Survival rates {data-orientation=columns}
+NOT Mortality rates {data-orientation=columns}
 =======================================================================
 
 Column {.sidebar data-width=150}
 -----------------------------------------------------------------------
-The survival rates are calculated by taking 1-deaths/incidence. Only countries with more than 500 cases are shown.
+The rates are calculated by taking 1-deaths/incidence. Only countries with more than 500 cases are shown.
 
-<p> *Its more usual to talk about mortality rates, but from a personal perspective, I'd rather hear about survival rates.*
+<p> *Its more usual to talk about mortality rates, but from a personal perspective, I'd rather not hear about mortality, but rather proportioon of people who are still fighting it or recovered.*
 
 Row {data-height=150}
 -----------------------------------------------------------------------
@@ -289,6 +332,7 @@ Row {data-height=150}
 
 ```{r read_more_jhu}
 covid_jh_deaths <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv")
+covid_jh_recovered <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_recovered_global.csv")
 ```
 
 ```{r survival}
@@ -322,7 +366,7 @@ renderPlotly({
 Row {data-height=150}
 -----------------------------------------------------------------------
 
-### Survival
+### Not mortality
 
 ```{r plot_survival, fig.height=7, fig.width=3, out.width="50%"}
 p2 <- ggplot(data=latest_surv, aes(x=`Country/Region`, y=survival)) +
@@ -336,12 +380,54 @@ renderPlotly({
 ```
 
 
+Recovery
+=======================================================================
+
+Rates {.sidebar data-width=350}
+-----------------------------------------------------------------------
+
+**Exploring the incidence and recovery timeline for China.**
+
+Daily incidence is plotted, along with daily recovered counts. The form looks like many of the epidemic simulation data, for example https://alhill.shinyapps.io/COVID19seir/. 
+
+Row {data-height=150}
+-----------------------------------------------------------------------
+
+```{r}
+# Examine daily counts and recovery for countries with early outbreaks, eg China
+china_count <- covid_jh %>% 
+  filter(`Country/Region` == "China") %>%
+  pivot_longer(cols=contains("/20"), names_to = "date") %>%
+  mutate(date = mdy(date)) %>%
+  group_by(date) %>%
+  summarise(count = sum(value)) %>%
+  ungroup() %>%
+  mutate(daily = count - lag(count))
+china_recovered <- covid_jh_recovered %>% 
+  filter(`Country/Region` == "China") %>%
+  pivot_longer(cols=contains("/20"), names_to = "date") %>%
+  mutate(date = mdy(date)) %>%
+  group_by(date) %>%
+  summarise(count = sum(value)) %>%
+  ungroup() %>%
+  mutate(recovered = count - lag(count))
+china <- left_join(china_count, china_recovered, by="date") %>%
+  select(-count.x, -count.y) %>%
+  pivot_longer(cols = c("daily", "recovered"), names_to = "type", values_to = "count")
+ggplot(china, aes(x=date, y=count, colour=type)) + 
+  geom_hline(yintercept=0, colour="black") +
+  geom_point() + geom_smooth(se=FALSE) +
+  scale_colour_brewer("", palette = "Dark2") +
+  xlab("") + ylab("Daily counts")
+```
+
 Explain
 =======================================================================
 
+
 Data is taken from several sources. 
 
-The incidence data is from John Hopkins University, using  the file https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Confirmed.csv. 
+The incidence data is from John Hopkins University,  https://github.com/CSSEGISandData/COVID-19/tree/master/csse_covid_19_data/csse_covid_19_time_series. 
 
 This is compared with the  data collated by Nick Evershed on Australian records at https://interactive.guim.co.uk/docsdata/1q5gdePANXci8enuiS4oHUJxcxC13d6bjMRSicakychE.json. 
 
@@ -349,4 +435,7 @@ Population for Australian states is from https://en.wikipedia.org/wiki/List_of_A
 
 Testing data for Australia is taken from https://ourworldindata.org/covid-testing. And NSW is updated from https://www.health.nsw.gov.au/news/Pages/20200323_00.aspx. Both of these sites need some manual curation, because one needs a manual download, and the second needs the url updated with the current date, and a check that tables are still the same.
 
+Australian data is sync'd with "The Real-time COVID-19 Status in Australia" https://github.com/covid-19-au/covid-19-au.github.io. This data is sourced from media reports and is curated by a team at Monash University. 
+
 All code is available at https://github.com/dicook/covid19. Suggestions and pull requests encouraged. 
+
