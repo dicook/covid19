@@ -93,7 +93,7 @@ state_monash_data <- state_monash_data %>%
 Australia
 =======================================================================
 
-Row {.sidebar data-width=200}
+Row {.sidebar data-width=400}
 -----------------------------------------------------------------------
 
 *Latest incidence and testing rates, per 100k people*
@@ -171,7 +171,7 @@ covid_jh_long <- covid_jh %>%
   summarise(count = sum(value)) %>%
   ungroup() %>%
   group_by(`Country/Region`) %>%
-  mutate(daily = count-lag(count, order_by = date)) %>%
+  mutate(daily = count-dplyr::lag(count, order_by = date)) %>%
   ungroup() %>%
   arrange(`Country/Region`) %>%
   filter(`Country/Region` != "Diamond Princess")
@@ -306,7 +306,7 @@ renderPlotly({
 Recovery
 =======================================================================
 
-Rates {.sidebar data-width=350}
+Row {.sidebar data-width=350}
 -----------------------------------------------------------------------
 
 **Exploring the incidence and recovery timeline for China.**
@@ -325,7 +325,7 @@ china_count <- covid_jh %>%
   group_by(date) %>%
   summarise(count = sum(value)) %>%
   ungroup() %>%
-  mutate(daily = count - lag(count))
+  mutate(daily = count - dplyr::lag(count, order_by = date))
 china_recovered <- covid_jh_recovered %>% 
   filter(`Country/Region` == "China") %>%
   pivot_longer(cols=contains("/20"), names_to = "date") %>%
@@ -333,7 +333,7 @@ china_recovered <- covid_jh_recovered %>%
   group_by(date) %>%
   summarise(count = sum(value)) %>%
   ungroup() %>%
-  mutate(recovered = count - lag(count))
+  mutate(recovered = count - dplyr::lag(count, order_by = date))
 china <- left_join(china_count, china_recovered, by="date") %>%
   select(-count.x, -count.y) %>%
   pivot_longer(cols = c("daily", "recovered"), names_to = "type", values_to = "count")
@@ -342,6 +342,12 @@ ggplot(china, aes(x=date, y=count, colour=type)) +
   geom_point() + geom_smooth(se=FALSE) +
   scale_colour_brewer("", palette = "Dark2") +
   xlab("") + ylab("Daily counts")
+```
+
+```{r eval=FALSE}
+china_count <- china_count %>%
+  mutate(new_past_7d <- count - dplyr::lag(count, 7, order_by = date))
+ggplot(china_count, aes(x=count, y=daily)) + geom_point()
 ```
 
 Sources
