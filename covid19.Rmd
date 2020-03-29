@@ -1,5 +1,5 @@
 ---
-title: "Examining COVID-19 data"
+title: "Examining COVID-19 data, w/ web browser, not mobile"
 output: 
   flexdashboard::flex_dashboard:
     vertical_layout: scroll
@@ -37,66 +37,6 @@ library(ggrepel)
 library(shiny)
 ```
 
-
-```{r read-data, eval=FALSE}
-# Nick Evershed's Guardian live data
-dj <- fromJSON("https://interactive.guim.co.uk/docsdata/1q5gdePANXci8enuiS4oHUJxcxC13d6bjMRSicakychE.json")
-d <- dj[[1]]$updates 
-d <- d %>% 
-  rename(state=State, date=Date, cum_count = `Cumulative case count`, cum_deaths = `Cumulative deaths`,
-         tests_neg = `Tests conducted (negative)`, tests_tot = `Tests conducted (total)`, 
-         source = `Update Source`, under60 = `Under 60`, over60 = `Over 60`, 
-         community = Community, travel = `Travel-related`, unknown = `Under investigation`, 
-         notes = Notes) %>%
-  mutate(date = dmy(date), cum_count = as.numeric(cum_count),
-         #state = factor(state, levels = c("NSW", "VIC", "QLD", "SA", "WA", "ACT", "TAS", "NT")),
-         cum_deaths = as.numeric(cum_deaths), tests_neg = as.numeric(tests_neg), 
-         tests_tot = as.numeric(tests_tot)) %>%
-  mutate(cum_count = replace_na(cum_count, 0), cum_deaths = replace_na(cum_deaths, 0)) %>%
-  select(-Time) %>%
-  distinct(date, state, .keep_all = TRUE)
-#g <- gs_url("https://docs.google.com/spreadsheets/d/1q5gdePANXci8enuiS4oHUJxcxC13d6bjMRSicakychE/htmlview#")
-#dg <- read_read(g, )
-```
-
-```{r testing_data, eval=FALSE}
-testing <- read_csv("data/covid-19-tests-country.csv")
-oz_testing <- testing %>% filter(grepl("Australia", Entity)) %>%
-  filter(Entity != "Australia")  %>%
-  mutate(Entity = gsub("Australia - ", "", Entity)) %>%
-  mutate(Entity = recode(Entity, "New South Wales"="NSW", 
-                         "Victoria"="VIC",
-                         "Queensland"="QLD", 
-                        "Australian Capital Territory"="ACT", 
-                        "South Australia"="SA", 
-                        "Western Australia"="WA", 
-                        "Tasmania"="TAS", 
-                        "Northern Territory"="NT")) %>%
-  rename(tests = `Total COVID-19 tests`, state=Entity) %>%
-  select(state, tests)
-
-# Update NSW data from the nice NSW news page with tables
-url = "https://www.health.nsw.gov.au/news/Pages/20200327_00.aspx"
-raw = xml2::read_html(url)
-raw_nsw_tbl = raw %>%
-  rvest::html_nodes(#xpath = #".//div[@id='ctl00_PlaceHolderMain_contentc1__ControlWrapper_RichHtmlField']/table") %>%
-  "table") %>%                   
-  rvest::html_table()
-nsw_counts <- raw_nsw_tbl[[1]]  %>% 
-  as_tibble() %>% 
-  janitor::clean_names() %>%
-  mutate(count = as.numeric(gsub(",","",count)))
-# Update NSW testing based on this info
-oz_testing <- oz_testing %>% 
-  mutate(tests = ifelse(state == "NSW", nsw_counts$count[3], tests)) 
-nsw_source <- raw_nsw_tbl[[2]] %>% 
-  as_tibble() %>% 
-  janitor::clean_names()
-nsw_demog <- raw_nsw_tbl[[3]]  %>% 
-  as_tibble() %>% 
-  janitor::clean_names()
-```
-
 ```{r read-jhu}
 # JHU
 covid_jh <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv")
@@ -116,51 +56,6 @@ state_pop <- tibble(state = c("NSW","VIC","QLD","SA","WA","TAS","NT","ACT","DP")
     pop = c(8089526, 6594804, 5095100, 1751693, 2621680, 426709, 245869, 420379, NA))
 ```
 
-```{r ne_data, eval=FALSE}
-# Replaced with Monash data
-# Join with Nick Evershed's data
-covid_ne_jhu <- left_join(covid_jh_oz_st, d) 
-# Add population
-covid_ne_jhu <- covid_ne_jhu %>% left_join(state_pop, by="state") %>%
-  mutate(state = factor(state, levels = c("NSW", "VIC", "QLD", "SA", "WA", "ACT", "TAS", "NT", "DP")))
-
-# Data fix
-# replace the cum_count with jhu number if missing
-covid_ne_jhu <- covid_ne_jhu %>%
-  mutate(cum_count = ifelse(is.na(cum_count), count, cum_count))
-# We'll use the jhu count anyway
-# Fill test data with next non-missing
-covid_ne_jhu <- covid_ne_jhu %>%
-  arrange(state, date)
-#covid_ne_jhu_save <- covid_ne_jhu
-#covid_ne_jhu <- covid_ne_jhu_save
-# Remove DP
-covid_ne_jhu <- covid_ne_jhu %>%
-  filter(state != "DP") %>%
-  mutate(state = factor(state, levels = c("NSW", "VIC", "QLD", "SA", "WA", "ACT", "TAS", "NT")))
-pre_n <- 0
-for (j in 1:nlevels(covid_ne_jhu$state)) {
-  x <- filter(covid_ne_jhu, state == levels(covid_ne_jhu$state)[j])
-  n <- nrow(x)
-  for (i in 1:n) {
-    # Find  nearest date neighbor to fill in missing 
-    if (is.na(covid_ne_jhu$tests_tot[i+pre_n])) {
-      dst <- abs(as.numeric(covid_ne_jhu$date[i+pre_n]-x$date))
-      dst[is.na(x$tests_tot)] <- 1000
-      covid_ne_jhu$tests_tot[i+pre_n] <- covid_ne_jhu$tests_tot[which.min(dst)+pre_n]
-    }
-  }
-  pre_n <- pre_n + n
-}
-# Compute rate, and use the NSW reports
-covid_ne_jhu <- covid_ne_jhu %>%
-  left_join(oz_testing) %>%
-  mutate(state = factor(state, levels = c("NSW", "VIC", "QLD", "SA", "WA", "ACT", "TAS", "NT", "DP"))) %>%
-  mutate(rate = count/pop * 100000,
-         test_rate = tests/pop * 100000)
-# Remove Diamond Princess data
-covid_ne_jhu <- covid_ne_jhu %>% filter(state != "DP")
-```
 
 ```{r monash_data}
 # Data from covid-19-au project
@@ -198,42 +93,14 @@ state_monash_data <- state_monash_data %>%
 Australia
 =======================================================================
 
-
-Rates {.sidebar data-width=400}
+Row {.sidebar data-width=200}
 -----------------------------------------------------------------------
 
-### Rates
+*Latest incidence and testing rates, per 100k people*
 
-Latest incidence and testing rates, per 100,000 people 
+<!-- # Now make plots using Monash COVID-19 data -->
 
-```{r test_rate, fig.width=8,  fig.height=4, out.width="100%", eval=FALSE}
-ord <- covid_ne_jhu %>% 
-  filter(date == max(date)) %>%
-  arrange(rate) %>%
-  select(state)
-covid_ne_jhu_smry <- covid_ne_jhu %>% 
-  filter(date == max(date)) %>% 
-  mutate(count = ifelse(state == "NSW", nsw_counts$count[1], count)) %>%
-  mutate(state = factor(state, levels=ord$state))
-p1 <- covid_ne_jhu_smry %>%
-  ggplot(aes(x=state, y=rate, fill=state)) +
-  geom_col() +
-  scale_fill_ochre(palette = "mccrea") +
-  ggtitle("Incidence") + 
-  coord_flip() + xlab("") + ylab("Rate") +
-  theme(legend.position = "none")
-p2 <- covid_ne_jhu_smry %>%
-  ggplot(aes(x=state, y=test_rate, fill=state)) +
-  geom_col() +
-  scale_fill_ochre(palette = "mccrea") +
-  ggtitle("Testing") + 
-  coord_flip() + xlab("") + ylab("Rate") +
-  theme(legend.position = "none")
-grid.arrange(p1, p2, ncol=2)
-```
-
-```{r monash_test_rate, fig.width=8,  fig.height=4, out.width="100%"}
-# Now make plots using Monash COVID-19 data
+```{r monash_test_rate, fig.width=8, fig.height=4, out.width="100%"}
 ord <- state_monash_data %>% 
   filter(date == max(date)) %>%
   arrange(rate) %>%
@@ -262,15 +129,6 @@ grid.arrange(p1, p2, ncol=2)
 
 ### Data
 
-```{r table_counts, eval=FALSE}
-covid_ne_jhu_smry %>% 
-  select(state, date, count, tests, source) %>%
-  arrange(desc(count)) %>%
-  datatable(options = list(
-  bPaginate = FALSE
-))
-```
-
 ```{r monash_table_counts}
 covid_ne_jhu_smry %>% 
   select(state, date, count, deaths, tested, rate, test_rate) %>%
@@ -280,23 +138,10 @@ covid_ne_jhu_smry %>%
 ))
 ```
 
-Column {data-width=600}
+Row {data-width=400}
 -----------------------------------------------------------------------
 
-###  COVID-19 rate per 100,000 people by state in Australia
-
-```{r state_incidence, fig.width=10,  fig.height=5.5, eval=FALSE}
-renderPlot({
-  covid_ne_jhu %>% 
-  mutate(state = factor(state, levels=ord$state[9:1])) %>%
-    ggplot(aes(x=date, y=rate)) +
-      geom_point(aes(colour=state), size=3) +
-      geom_smooth(se=FALSE, colour="black") + 
-      scale_colour_ochre(palette = "mccrea") +
-      facet_wrap(~state) + 
-      xlab("") + ylab("Rate (per 100k)")
-})
-```
+###  COVID-19 rate per 100k people by state in Australia
 
 ```{r monash_state_incidence, fig.width=10,  fig.height=5.5}
 renderPlot({
@@ -401,7 +246,7 @@ Column {.sidebar data-width=150}
 -----------------------------------------------------------------------
 The rates are calculated by taking 1-deaths/incidence. Only countries with more than 500 cases are shown.
 
-<p> *Its more usual to talk about mortality rates, but from a personal perspective, I'd rather not hear about mortality, but rather proportioon of people who are still fighting it or recovered.*
+<p> *Its more usual to talk about mortality rates. From a personal perspective, I'd rather hear about proportion of people who are still fighting it or recovered, than mortality.*
 
 Row {data-height=150}
 -----------------------------------------------------------------------
@@ -432,12 +277,12 @@ latest_surv <- latest_surv %>%
 ```
 
 ```{r plot-counts, fig.height=7, fig.width=3, out.width="50%"}
-p1 <- ggplot(data=latest_surv, aes(x=`Country/Region`, y=count)) +
+psurv1 <- ggplot(data=latest_surv, aes(x=`Country/Region`, y=count)) +
   geom_col(aes(text=survival)) + 
   scale_y_log10() +
   coord_flip() + xlab("") + ylab("Count (log scale)")
 renderPlotly({
-  ggplotly(p1)
+  ggplotly(psurv1)
 })
 ```
 
@@ -447,13 +292,13 @@ Row {data-height=150}
 ### Not mortality
 
 ```{r plot_survival, fig.height=7, fig.width=3, out.width="50%"}
-p2 <- ggplot(data=latest_surv, aes(x=`Country/Region`, y=survival)) +
+psurv2 <- ggplot(data=latest_surv, aes(x=`Country/Region`, y=survival)) +
   geom_col(aes(text=count)) + 
   coord_flip() + xlab("") + ylab("Survival rate") +
   geom_hline(yintercept=1, colour = "red") +
   ylim(c(0,1))
 renderPlotly({
-  ggplotly(p2)
+  ggplotly(psurv2)
 })
 ```
 
@@ -499,7 +344,7 @@ ggplot(china, aes(x=date, y=count, colour=type)) +
   xlab("") + ylab("Daily counts")
 ```
 
-Explain
+Sources
 =======================================================================
 
 
@@ -507,13 +352,13 @@ Data is taken from several sources.
 
 The incidence data is from John Hopkins University,  https://github.com/CSSEGISandData/COVID-19/tree/master/csse_covid_19_data/csse_covid_19_time_series. 
 
-This is compared with the  data collated by Nick Evershed on Australian records at https://interactive.guim.co.uk/docsdata/1q5gdePANXci8enuiS4oHUJxcxC13d6bjMRSicakychE.json. 
-
 Population for Australian states is from https://en.wikipedia.org/wiki/List_of_Australian_states_and_territories_by_gross_state_product. 
 
-Testing data for Australia is taken from https://ourworldindata.org/covid-testing. And NSW is updated from https://www.health.nsw.gov.au/news/Pages/20200323_00.aspx. Both of these sites need some manual curation, because one needs a manual download, and the second needs the url updated with the current date, and a check that tables are still the same.
-
 Australian data is sync'd with "The Real-time COVID-19 Status in Australia" https://github.com/covid-19-au/covid-19-au.github.io. This data is sourced from media reports and is curated by a team at Monash University. 
+
+Earlier versions also used data collated by Nick Evershed on Australian records at https://interactive.guim.co.uk/docsdata/1q5gdePANXci8enuiS4oHUJxcxC13d6bjMRSicakychE.json. 
+
+Earlier version extracted testing data for Australia from https://ourworldindata.org/covid-testing. And NSW is updated from https://www.health.nsw.gov.au/news/Pages/20200323_00.aspx. Both of these sites need some manual curation, because one needs a manual download, and the second needs the url updated with the current date, and a check that tables are still the same.
 
 All code is available at https://github.com/dicook/covid19. Suggestions and pull requests encouraged. 
 
