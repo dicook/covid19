@@ -87,8 +87,8 @@ x_wide_aft18 <- x_wide[19:length(state_monash),] %>%
 state_monash_data <- bind_rows(x_wide_bef19, x_wide_aft18) 
 state_monash_data <- left_join(state_monash_data, state_pop)
 state_monash_data <- state_monash_data %>%
-  mutate(rate = round(count/pop * 100000, 1),
-         test_rate = round(tested/pop * 100000), 1) %>%
+  mutate(rate = round(count/pop * 100000, 2),
+         test_rate = round(tested/pop * 1000), 2) %>%
   mutate(date = ymd(date))
 #locations_monash <- fromJSON("https://raw.githubusercontent.com/covid-19-au/covid-19-au.github.io/prod/src/data/mapdata.json")
 #test_loc_monash <- frmJSON("https://raw.githubusercontent.com/covid-19-au/covid-19-au.github.io/prod/src/data/mapdataHos.json")
@@ -97,14 +97,14 @@ state_monash_data <- state_monash_data %>%
 Australia
 =======================================================================
 
-Row {.sidebar data-width=400}
+Row {.sidebar data-width=450}
 -----------------------------------------------------------------------
 
-*Latest incidence and testing rates, per 100k people*
+*Latest incidence (per 100k) and testing rates (per 1000)*
 
 <!-- # Now make plots using Monash COVID-19 data -->
 
-```{r monash_test_rate, fig.width=8, fig.height=4, out.width="100%"}
+```{r monash_test_rate, fig.width=6, fig.height=3, out.width="100%"}
 ord <- state_monash_data %>% 
   filter(date == max(date)) %>%
   arrange(rate) %>%
@@ -135,7 +135,7 @@ grid.arrange(p1, p2, ncol=2)
 
 ```{r monash_table_counts}
 covid_ne_jhu_smry %>% 
-  select(state, date, count, deaths, tested, rate, test_rate) %>%
+  select(state, date, count, pop, tested, rate, test_rate, deaths) %>%
   arrange(desc(count)) %>%
   datatable(options = list(
   bPaginate = FALSE
