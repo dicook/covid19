@@ -1,5 +1,5 @@
 ---
-title: "Examining COVID-19 data, w/ web browser, not mobile"
+title: "Examining COVID-19 data (web browser)"
 output: 
   flexdashboard::flex_dashboard:
     vertical_layout: scroll
@@ -56,6 +56,10 @@ state_pop <- tibble(state = c("NSW","VIC","QLD","SA","WA","TAS","NT","ACT","DP")
     pop = c(8089526, 6594804, 5095100, 1751693, 2621680, 426709, 245869, 420379, NA))
 ```
 
+```{r read_more_jhu}
+covid_jh_deaths <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv")
+covid_jh_recovered <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_recovered_global.csv")
+```
 
 ```{r monash_data}
 # Data from covid-19-au project
@@ -83,8 +87,8 @@ x_wide_aft18 <- x_wide[19:length(state_monash),] %>%
 state_monash_data <- bind_rows(x_wide_bef19, x_wide_aft18) 
 state_monash_data <- left_join(state_monash_data, state_pop)
 state_monash_data <- state_monash_data %>%
-  mutate(rate = count/pop * 100000,
-         test_rate = tested/pop * 100000) %>%
+  mutate(rate = round(count/pop * 100000, 1),
+         test_rate = round(tested/pop * 100000), 1) %>%
   mutate(date = ymd(date))
 #locations_monash <- fromJSON("https://raw.githubusercontent.com/covid-19-au/covid-19-au.github.io/prod/src/data/mapdata.json")
 #test_loc_monash <- frmJSON("https://raw.githubusercontent.com/covid-19-au/covid-19-au.github.io/prod/src/data/mapdataHos.json")
@@ -172,6 +176,7 @@ covid_jh_long <- covid_jh %>%
   ungroup() %>%
   group_by(`Country/Region`) %>%
   mutate(daily = count-dplyr::lag(count, order_by = date)) %>%
+  mutate(new_past_7d = count - dplyr::lag(count, 7, order_by = date)) %>%
   ungroup() %>%
   arrange(`Country/Region`) %>%
   filter(`Country/Region` != "Diamond Princess")
@@ -189,7 +194,7 @@ covid_since100_labels <- covid_since100 %>%
   group_by(`Country/Region`) %>%
   filter(days == max(days)) %>%
   ungroup()
-checkboxGroupInput("cnt", "Choose countries:", choices = unique(covid_jh_long$`Country/Region`), selected = c("Australia", "Germany", "Denmark", "Sweden"),  width="100%")
+checkboxGroupInput("cnt", "Choose countries:", choices = unique(covid_jh_long$`Country/Region`), selected = c("Australia", "Germany", "US", "Sweden", "Italy", "Spain", "Korea, South"),  width="100%")
 ```
 
 
@@ -215,11 +220,32 @@ p3 <-
   ylab("Incidences (log scale)") +
   scale_colour_brewer("", palette="Dark2") +
   theme(legend.position = "none") 
-p4 <- covid_jh_long %>% 
-    filter(`Country/Region` %in% input$cnt) %>%
-    ggplot(aes(x=date, y=count)) + geom_col() +
-    facet_wrap(~`Country/Region`, scales="free_y") + 
-    scale_y_log10() + xlab("") + ylab("Count (log scale)")
+china_trend <- covid_jh_long %>% 
+    filter(`Country/Region` == "China")
+china_trend_labels <- china_trend %>%
+  filter(date == max(date))
+countries_trend  <- covid_jh_long %>% 
+    filter(`Country/Region` %in% input$cnt) 
+countries_trend_labels <- countries_trend %>%
+  group_by(`Country/Region`) %>%
+  filter(date == max(date)) %>%
+  ungroup()
+p4 <- ggplot() + 
+      geom_line(data=countries_trend, aes(x=count, y=new_past_7d,
+                                     colour=`Country/Region`)) + 
+      geom_text_repel(data=countries_trend_labels, aes(x=count, y=new_past_7d,
+       label=`Country/Region`, colour=`Country/Region`)) + 
+      geom_line(data=china_trend, aes(x=count, y=new_past_7d), colour="black") +
+        xlab("Total cases") + ylab("Cases in past 7 days") +
+      geom_text_repel(data=china_trend_labels, aes(x=count, y=new_past_7d,
+       label=`Country/Region`), colour="black") + 
+      scale_colour_brewer("", palette="Dark2") +
+      theme(legend.position = "none") 
+#p4 <- covid_jh_long %>% 
+#    filter(`Country/Region` %in% input$cnt) %>%
+#    ggplot(aes(x=date, y=count)) + geom_col() +
+#    facet_wrap(~`Country/Region`, scales="free_y") + 
+#    scale_y_log10() + xlab("") + ylab("Count (log scale)")
 grid.arrange(p3, p4, ncol=2)
 })
 ```
@@ -253,10 +279,6 @@ Row {data-height=150}
 
 ### Counts
 
-```{r read_more_jhu}
-covid_jh_deaths <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv")
-covid_jh_recovered <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_recovered_global.csv")
-```
 
 ```{r survival}
 covid_jh_deaths_long <- covid_jh_deaths %>%
@@ -346,8 +368,9 @@ ggplot(china, aes(x=date, y=count, colour=type)) +
 
 ```{r eval=FALSE}
 china_count <- china_count %>%
-  mutate(new_past_7d <- count - dplyr::lag(count, 7, order_by = date))
-ggplot(china_count, aes(x=count, y=daily)) + geom_point()
+  mutate(new_past_7d = count - dplyr::lag(count, 7, order_by = date))
+ggplot(china_count, aes(x=count, y=new_past_7d)) + 
+  geom_point() + geom_line()
 ```
 
 Sources
