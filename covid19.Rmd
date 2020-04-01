@@ -298,19 +298,19 @@ latest_surv <- covid_jh_all %>%
   select(`Country/Region`, date, count, deaths) %>%
   filter(date == max(date)) %>%
   mutate(
-    survival = round(1 - deaths/count, 4),
+    notmortality = round(1 - deaths/count, 4),
     mortality = round(deaths/count, 4)) %>%
-  filter(!is.na(survival)) %>%
+  filter(!is.na(notmortality)) %>%
   filter(count > 500)
 latest_surv <- latest_surv %>%
-  mutate(`Country/Region` = fct_reorder(`Country/Region`, survival))
+  mutate(`Country/Region` = fct_reorder(`Country/Region`, notmortality))
 ```
 
 ```{r plot-counts, fig.height=7, fig.width=3, out.width="50%"}
 psurv1 <- ggplot(data=latest_surv, aes(x=`Country/Region`, y=count)) +
-  geom_col(aes(text=paste0("survival: ", survival))) + 
+  geom_col(aes(text=paste0("not mortality: ", notmortality))) + 
   scale_y_log10() +
-  coord_flip() + xlab("") + ylab("Count (log scale)")
+  coord_flip() + xlab("") + ylab("Count (log scale)") 
 renderPlotly({
   ggplotly(psurv1)
 })
@@ -323,11 +323,13 @@ Row {data-height=150}
 
 ```{r plot_survival, fig.height=7, fig.width=3, out.width="50%"}
 latest_surv_long <- latest_surv %>%
-  pivot_longer(cols = -c(`Country/Region`, date, count, deaths), names_to = "type", values_to = "rate")
+  pivot_longer(cols = -c(`Country/Region`, date, count, deaths), names_to = "type", values_to = "rate") %>%
+  mutate(type = factor(type, levels = c("notmortality", "mortality")))
 psurv2 <- ggplot(data=latest_surv_long, aes(x=`Country/Region`, y=rate, fill =type, text=paste0("count: ", count)),  stat="identity") +
   geom_bar(position="fill", stat="identity") +
-  scale_fill_manual(values = c("#ff5050", "#009900")) +
-  coord_flip() + xlab("") + ylab("Survival rate")
+  scale_fill_brewer("", palette="Dark2") +
+  coord_flip() + xlab("") + ylab("Rate") +
+  theme(legend.position="none")
   #geom_hline(yintercept=1, colour = "red") +
   #ylim(c(0,1))
 renderPlotly({
