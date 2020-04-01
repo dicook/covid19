@@ -343,7 +343,7 @@ Recovery
 Row {.sidebar data-width=350}
 -----------------------------------------------------------------------
 
-**Exploring the incidence and recovery timeline for China.**
+**Exploring the incidence and recovery timeline for China, and Australia.**
 
 Daily incidence is plotted, along with daily recovered counts. The form looks like many of the epidemic simulation data, for example https://alhill.shinyapps.io/COVID19seir/. 
 
@@ -370,19 +370,50 @@ china_recovered <- covid_jh_recovered %>%
   mutate(recovered = count - dplyr::lag(count, order_by = date))
 china <- left_join(china_count, china_recovered, by="date") %>%
   select(-count.x, -count.y) %>%
-  pivot_longer(cols = c("daily", "recovered"), names_to = "type", values_to = "count")
-ggplot(china, aes(x=date, y=count, colour=type)) + 
+  pivot_longer(cols = c("daily", "recovered"), names_to = "type", values_to = "count") %>%
+  mutate(type = factor(type, levels = c("recovered", "daily")))
+p_china <- ggplot(china, aes(x=date, y=count, colour=type)) + 
   geom_hline(yintercept=0, colour="black") +
   geom_point() + geom_smooth(se=FALSE) +
   scale_colour_brewer("", palette = "Dark2") +
-  xlab("") + ylab("Daily counts")
+  annotate("text", x=china$date[1], y=14500, label="China", hjust=0) +
+  xlab("") + ylab("Daily counts") +
+  theme(legend.position = "bottom")
 ```
 
-```{r eval=FALSE}
-china_count <- china_count %>%
-  mutate(new_past_7d = count - dplyr::lag(count, 7, order_by = date))
-ggplot(china_count, aes(x=count, y=new_past_7d)) + 
-  geom_point() + geom_line()
+```{r}
+# Examine daily counts and recovery for countries with early outbreaks, eg China
+australia_count <- covid_jh %>% 
+  filter(`Country/Region` == "Australia") %>%
+  pivot_longer(cols=contains("/20"), names_to = "date") %>%
+  mutate(date = mdy(date)) %>%
+  group_by(date) %>%
+  summarise(count = sum(value)) %>%
+  ungroup() %>%
+  mutate(daily = count - dplyr::lag(count, order_by = date))
+australia_recovered <- covid_jh_recovered %>% 
+  filter(`Country/Region` == "Australia") %>%
+  pivot_longer(cols=contains("/20"), names_to = "date") %>%
+  mutate(date = mdy(date)) %>%
+  group_by(date) %>%
+  summarise(count = sum(value)) %>%
+  ungroup() %>%
+  mutate(recovered = count - dplyr::lag(count, order_by = date))
+australia <- left_join(australia_count, australia_recovered, by="date") %>%
+  select(-count.x, -count.y) %>%
+  pivot_longer(cols = c("daily", "recovered"), names_to = "type", values_to = "count") %>%
+  mutate(type = factor(type, levels = c("recovered", "daily")))
+p_australia <-  ggplot(australia, aes(x=date, y=count, colour=type)) + 
+  geom_hline(yintercept=0, colour="black") +
+  geom_point() + geom_smooth(se=FALSE) +
+  scale_colour_brewer("", palette = "Dark2") +
+  annotate("text", x=australia$date[1], y=450, label="Australia", hjust=0) +
+  xlab("") + ylab("Daily counts") +
+  theme(legend.position = "bottom")
+```
+
+```{r fig.height=6, fig.width=5, out.width="90%"}
+grid.arrange(p_china, p_australia, ncol=1)
 ```
 
 Sources
