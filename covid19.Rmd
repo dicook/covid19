@@ -165,6 +165,66 @@ renderPlot({
 })
 ```
 
+Melbourne
+=======================================================================
+
+Inputs {.sidebar data-width=200}
+-----------------------------------------------------------------------
+
+Pedestrian traffic in Melbourne in the last week in comparison to a year ago. 
+
+
+
+```{r eval=FALSE}
+library(rwalkr)
+#pedestrian <- melb_walk_fast(year=c(2019, 2020), sensor="Southern Cross Station") 
+
+ped_2020 <- melb_walk(from=Sys.Date() - 7L)
+ped_2019 <- melb_walk(from=Sys.Date() - 30L - years(1), to=Sys.Date() - years(1))
+
+
+ped_2019 <- ped_2019 %>%
+  filter(Date != today()) %>%
+  mutate(wk =  week(Date), 
+         wday = wday(Date, label = TRUE),
+         year = year(Date))
+ped_2020 <- ped_2020 %>%
+  mutate(wk =  week(Date), 
+         wday = wday(Date, label = TRUE),
+         year = year(Date))
+
+ped <- bind_rows(ped_2019, ped_2020) %>%
+  mutate(wday = factor(wday, 
+                       levels = wday(max(ped_2020$Date)-days(6:0), label=TRUE)))
+save(ped, file="data/ped.rda")
+```
+
+```{r}
+load("data/ped.rda")
+period <- ped %>% filter(year == 2020) %>% select(Date) %>% summarise(mn = min(Date), mx = max(Date))
+selectInput("sensor", "Choose a sensor:", 
+              choices = unique(ped$Sensor), 
+              selected = "Melbourne Central",  
+              width="100%")
+```
+
+Row {data-height=400}
+-----------------------------------------------------------------------
+
+```{r out.width="100%", fig.width=10, fig.height=4}
+renderPlot({
+  ped %>%
+  filter(Sensor == input$sensor) %>%
+  ggplot(aes(x=Time, y=Count, group=Date, colour=as.factor(year))) +
+    geom_line() +
+    facet_wrap(~wday, ncol=7) + 
+    scale_colour_ochre("year", palette="emu_woman_paired") + 
+  theme(legend.position="bottom",
+          legend.title = element_blank()) +
+  ggtitle(paste(period$mn, "to", period$mx))
+})
+```
+
 World Incidence
 =======================================================================
 
@@ -350,6 +410,7 @@ Row {data-width=650}
 -----------------------------------------------------------------------
 
 ```{r}
+library(tidyquant)
 # Examine daily counts and recovery for countries with early outbreaks, eg China
 china_count <- covid_jh %>% 
   filter(`Country/Region` == "China") %>%
@@ -373,7 +434,7 @@ china <- left_join(china_count, china_recovered, by="date") %>%
   mutate(type = factor(type, levels = c("recovered", "daily")))
 p_china <- ggplot(china, aes(x=date, y=count, colour=type)) + 
   geom_hline(yintercept=0, colour="black") +
-  geom_point() + geom_smooth(se=FALSE) +
+  geom_point(alpha=0.5) + geom_ma(n=7, linetype=1, size=2) + 
   scale_colour_brewer("", palette = "Dark2") +
   annotate("text", x=china$date[1], y=14500, label="China", hjust=0) +
   xlab("") + ylab("Daily counts") +
@@ -389,7 +450,7 @@ australia_count <- covid_jh %>%
   group_by(date) %>%
   summarise(count = sum(value)) %>%
   ungroup() %>%
-  mutate(daily = count - dplyr::lag(count, order_by = date))
+  mutate(daily = count - dplyr::lag(count, order_by = date)) 
 australia_recovered <- covid_jh_recovered %>% 
   filter(`Country/Region` == "Australia") %>%
   pivot_longer(cols=contains("/20"), names_to = "date") %>%
@@ -402,9 +463,12 @@ australia <- left_join(australia_count, australia_recovered, by="date") %>%
   select(-count.x, -count.y) %>%
   pivot_longer(cols = c("daily", "recovered"), names_to = "type", values_to = "count") %>%
   mutate(type = factor(type, levels = c("recovered", "daily")))
+#australia <- australia %>% 
+#  as_tsibble(index=date, key=type) %>%
+#  mutate(ma7 = slide_dbl(count, mean, .size=7))
 p_australia <-  ggplot(australia, aes(x=date, y=count, colour=type)) + 
   geom_hline(yintercept=0, colour="black") +
-  geom_point() + geom_smooth(se=FALSE) +
+  geom_point(alpha=0.5) + geom_ma(n=7, linetype=1, size=2) +
   scale_colour_brewer("", palette = "Dark2") +
   annotate("text", x=australia$date[1], y=450, label="Australia", hjust=0) +
   xlab("") + ylab("Daily counts") +
