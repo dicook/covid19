@@ -368,8 +368,8 @@ latest_surv <- latest_surv %>%
 ```{r plot-counts, fig.height=7, fig.width=3, out.width="50%"}
 psurv1 <- ggplot(data=latest_surv, aes(x=`Country/Region`, y=count)) +
   geom_col(aes(text=paste0("not mortality: ", notmortality))) + 
-  scale_y_log10() +
-  coord_flip() + xlab("") + ylab("Count (log scale)") 
+  #scale_y_log10() +
+  coord_flip() + xlab("") + ylab("Count") # (log scale)") 
 renderPlotly({
   ggplotly(psurv1)
 })
@@ -437,6 +437,7 @@ p_china <- ggplot(china, aes(x=date, y=count, colour=type)) +
   geom_point(alpha=0.5) + geom_ma(n=7, linetype=1, size=2) + 
   scale_colour_brewer("", palette = "Dark2") +
   annotate("text", x=china$date[1], y=14500, label="China", hjust=0) +
+  ylim(c(0, 7500)) +
   xlab("") + ylab("Daily counts") +
   theme(legend.position = "none")
 ```
