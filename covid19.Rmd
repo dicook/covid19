@@ -59,6 +59,13 @@ state_pop <- tibble(state = c("NSW","VIC","QLD","SA","WA","TAS","NT","ACT","DP")
 ```{r read_more_jhu}
 covid_jh_deaths <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv")
 covid_jh_recovered <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_recovered_global.csv")
+latest_oz <- covid_jh_oz_st %>%
+  group_by(state) %>%
+  mutate(daily = count-dplyr::lag(count, order_by = date)) %>%
+  ungroup() %>%
+  group_by(date) %>%
+  summarise(daily = sum(daily, na.rm=TRUE), count = sum(count, na.rm=TRUE)) #%>%
+  #filter(date == max(date))  
 ```
 
 ```{r monash_data}
@@ -102,6 +109,8 @@ Row {data-height=350}
 
 ### *Latest incidence (per 100k) and testing rates (per 1000). States ordered by incidence rate*
 
+
+
 <!-- # Now make plots using Monash COVID-19 data -->
 
 ```{r monash_test_rate, fig.width=10, fig.height=5, out.width="100%"}
@@ -130,6 +139,8 @@ grid.arrange(p1, p2, ncol=2)
 ```
 
 ### Data
+
+The latest new cases and total count are `r latest_oz %>% filter(date == max(date))`.
 
 ```{r monash_table_counts}
 covid_ne_jhu_smry %>% 
@@ -335,7 +346,7 @@ NOT Mortality rates {data-orientation=columns}
 
 Column {.sidebar data-width=150}
 -----------------------------------------------------------------------
-The rates are calculated by taking 1-deaths/incidence. Only countries with more than 500 cases are shown.
+The rates are calculated by taking 1-deaths/incidence. Only countries with more than 1500 cases are shown.
 
 <p> *Its more usual to talk about mortality rates. From a personal perspective, I'd rather hear about proportion of people who are still fighting it or recovered, than mortality.*
 
@@ -360,7 +371,7 @@ latest_surv <- covid_jh_all %>%
     notmortality = round(1 - deaths/count, 4),
     mortality = round(deaths/count, 4)) %>%
   filter(!is.na(notmortality)) %>%
-  filter(count > 500)
+  filter(count > 1500)
 latest_surv <- latest_surv %>%
   mutate(`Country/Region` = fct_reorder(`Country/Region`, notmortality))
 ```
@@ -436,7 +447,7 @@ p_china <- ggplot(china, aes(x=date, y=count, colour=type)) +
   geom_hline(yintercept=0, colour="black") +
   geom_point(alpha=0.5) + geom_ma(n=7, linetype=1, size=2) + 
   scale_colour_brewer("", palette = "Dark2") +
-  annotate("text", x=china$date[1], y=14500, label="China", hjust=0) +
+  annotate("text", x=china$date[1], y=6000, label="China", hjust=0) +
   ylim(c(0, 7500)) +
   xlab("") + ylab("Daily counts") +
   theme(legend.position = "none")
@@ -483,6 +494,15 @@ renderPlot(
   {p_china/p_australia}
 )
 #grid.arrange(p_china, p_australia, ncol=1)
+```
+
+<!--Carbon dioxide levels
+=======================================================================-->
+
+```{r eval=FALSE}
+CO2 <- read_csv("https://scrippsco2.ucsd.edu/assets/data/atmospheric/stations/in_situ_co2/weekly/weekly_in_situ_co2_mlo.csv", col_names=c("date", "co2"), skip=69) %>%
+  mutate(date = ymd(date))
+CO2 %>% filter(year(date) > 2008) %>% ggplot(aes(x=date, y=co2)) + geom_point()
 ```
 
 Sources
