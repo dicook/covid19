@@ -182,7 +182,7 @@ Melbourne
 Inputs {.sidebar data-width=200}
 -----------------------------------------------------------------------
 
-Pedestrian traffic in Melbourne in the last week in comparison to a year ago. 
+Pedestrian traffic in Melbourne in the last few weeks in comparison to a year ago. 
 
 
 
@@ -190,7 +190,7 @@ Pedestrian traffic in Melbourne in the last week in comparison to a year ago.
 library(rwalkr)
 #pedestrian <- melb_walk_fast(year=c(2019, 2020), sensor="Southern Cross Station") 
 
-ped_2020 <- melb_walk(from=Sys.Date() - 7L)
+ped_2020 <- melb_walk(from=Sys.Date() - 30L)
 ped_2019 <- melb_walk(from=Sys.Date() - 30L - years(1), to=Sys.Date() - years(1))
 
 
